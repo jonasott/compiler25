@@ -2,7 +2,6 @@ from lang_var.var_ast import *
 from common.wasm import *
 import lang_var.var_tychecker as var_tychecker
 from common.compilerSupport import *
-import common.utils as utils
 
 def compileModule(m: mod, cfg: CompilerConfig) -> WasmModule:
     """
@@ -36,7 +35,44 @@ def compileStmt(stmt: stmt) -> list[WasmInstr]:
             return compileAssign(var, right)
         
 def compileExp(exp: exp) -> list[WasmInstr]:
-    return []
+    match exp:
+        case IntConst(value):
+            return [WasmInstrConst("i64",value)]
+        case Name(name):
+            return [WasmInstrVarLocal("get", identToWasmId(name))]
+        case Call(name, args):
+            return compileCall(name, args)
+        case UnOp(op, arg):
+            return compileUnOp(op, arg)
+        case BinOp(left, op, right):
+            return compileBinOp(left, op, right)
+
+def compileCall(name: ident, args: list[exp]) -> list[WasmInstr]:
+    i = Ident("")
+    match name.name:
+        case "print":
+            i = Ident("print_i64")
+        case "input_int":
+            i = Ident("input_i64")
+        case _:
+            pass
+    
+    return [ce for e in args for ce in compileExp(e)] + [WasmInstrCall(identToWasmId(i))]
+
+def compileUnOp(op: unaryop, arg: exp) -> list[WasmInstr]:
+    match op:
+        case USub():
+            return [WasmInstrConst("i64",0)] + compileExp(arg) + [WasmInstrNumBinOp("i64","sub")]
+
+def compileBinOp(left: exp, op: binaryop, right: exp) -> list[WasmInstr]:
+    match op:
+        case Add():
+            return compileExp(left) + compileExp(right) + [WasmInstrNumBinOp("i64", "add")]
+        case Sub():
+            return compileExp(left) + compileExp(right) + [WasmInstrNumBinOp("i64", "sub")]
+        case Mul():
+            return compileExp(left) + compileExp(right) + [WasmInstrNumBinOp("i64", "mul")]
+        
 
 def compileAssign(var: ident, right: exp) -> list[WasmInstr]:
     return compileExp(right) + [WasmInstrVarLocal("set", identToWasmId(var))]
