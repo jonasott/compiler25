@@ -66,7 +66,11 @@ def compileExp(exp: exp) -> list[WasmInstr]:
         case IntConst(value):
             return [WasmInstrConst("i64", value)]
         case BoolConst(value):
-            return [WasmInstrConst("i32", value)]
+            match value:
+                case True:
+                    return [WasmInstrConst("i32",1)]
+                case False:
+                    return [WasmInstrConst("i32",0)]
         case Name(name):
             return [WasmInstrVarLocal("get", identToWasmId(name))]
         case Call(name, args):
@@ -80,11 +84,14 @@ def compileCall(name: ident, args: list[exp]) -> list[WasmInstr]:
     i = Ident("")
     match name.name:
         case "print":
-            i = Ident("print_i64")
+            if (tyOfExp(args[0]) == Int()):
+                i = Ident("print_i64")
+            else:
+                i = Ident("print_bool")
         case "input_int":
             i = Ident("input_i64")
         case _:
-            pass
+            raise Exception(f"CALL {name.name}")
     
     return compileExps(args) + [WasmInstrCall(identToWasmId(i))]
 
@@ -125,12 +132,13 @@ def compileBinOp(left: exp, op: binaryop, right: exp) -> list[WasmInstr]:
             else:
                 instr = [WasmInstrIntRelOp("i32","ne")]
         case And():
-            return [] #if shit
+            return compileExp(left) + [WasmInstrIf("i32",compileExp(right), [WasmInstrConst("i32",0)])]
         case Or():
-            return []
+                
+            return compileExp(left) + [WasmInstrIf("i32",[WasmInstrConst("i32",1)], compileExp(right))]
         
     return expressions + instr
-
+    
 
 def compileAssign(var: ident, right: exp) -> list[WasmInstr]:
     return compileExp(right) + [WasmInstrVarLocal("set", identToWasmId(var))]
