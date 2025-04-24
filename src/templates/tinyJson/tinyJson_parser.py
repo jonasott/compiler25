@@ -6,22 +6,35 @@ def ruleJson(toks: TokenStream) -> Json:
     return alternatives("json", toks, [ruleObject, ruleString, ruleInt])
 
 def ruleObject(toks: TokenStream) -> dict[str, Json]:
-    return {} # TODO
+    toks.ensureNext("LBRACE")
+    d = ruleEntryList(toks)
+    toks.ensureNext("RBRACE")
+    return d
 
 def ruleEntryList(toks: TokenStream) -> dict[str, Json]:
-    return {} # TODO
+    if toks.lookahead() == "STRING":
+        return ruleEntryListNotEmpty(toks)
+    else:
+        return {}
 
 def ruleEntryListNotEmpty(toks: TokenStream) -> dict[str, Json]:
-    return {} # TODO
+    d : dict[str,Json] = {}
+    e = ruleEntry(toks)
+    d.update([e])
+    if toks.lookahead() != "COMMA":
+        d.update(ruleEntryListNotEmpty(toks))
+    return d
 
 def ruleEntry(toks: TokenStream) -> tuple[str, Json]:
-    return ("", {}) # TODO
+    s = ruleString(toks)
+    toks.ensureNext("COLON")
+    return (s, ruleJson(toks))
 
 def ruleString(toks: TokenStream) -> str:
-    return "" # TODO
+    return str(toks.ensureNext("STRING").value)
 
 def ruleInt(toks: TokenStream) -> int:
-    return 0 # TODO
+    return int(toks.ensureNext("INT").value)
 
 def parse(code: str) -> Json:
     parser = mkLexer("./src/parsers/tinyJson/tinyJson_grammar.lark")
