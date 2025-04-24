@@ -1,3 +1,5 @@
 {
     "cmake.configureOnOpen": false,
+    "python.analysis.typeCheckingMode": "strict",
+    "python.analysis.diagnosticMode": "workspace",
 }
