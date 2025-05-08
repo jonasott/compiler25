@@ -12,7 +12,7 @@ def ruleObject(toks: TokenStream) -> dict[str, Json]:
     return d
 
 def ruleEntryList(toks: TokenStream) -> dict[str, Json]:
-    if toks.lookahead() == "STRING":
+    if toks.lookahead().type == "STRING":
         return ruleEntryListNotEmpty(toks)
     else:
         return {}
@@ -21,7 +21,7 @@ def ruleEntryListNotEmpty(toks: TokenStream) -> dict[str, Json]:
     d : dict[str,Json] = {}
     e = ruleEntry(toks)
     d.update([e])
-    if toks.lookahead() == "COMMA":
+    if toks.lookahead().type == "COMMA":
         toks.next()
         d.update(ruleEntryListNotEmpty(toks))
     return d

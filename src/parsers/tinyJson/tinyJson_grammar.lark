@@ -1,5 +1,5 @@
 WHITESPACE: /[ \t\f\r\n]/+
-STRING: /"[^"\n\r]"/
+STRING: /"[^"\n\r]*"/
 INT: /[0-9]/+
 LBRACE: "{"
 RBRACE: "}"
