@@ -7,7 +7,7 @@ from lang_array.array_compilerSupport import *
 from common.compilerSupport import *
 import common.utils as utils
 
-#TODO Woher bekannt, wie das hier aufgebaut wird?
+
 def compileModule(m: plainAst.mod, cfg: CompilerConfig) -> WasmModule:
     vars = array_tychecker.tycheckModule(m)
     ctx = array_transform.Ctx()
@@ -16,13 +16,15 @@ def compileModule(m: plainAst.mod, cfg: CompilerConfig) -> WasmModule:
     idMain = WasmId("$main")
     
     locals: list[tuple[WasmId, WasmValtype]] = [(identToWasmId(id), "i64" if type(ty) == Int else "i32") for id,ty in vars.types()]
-    
+    freshLocals: list[tuple[WasmId, WasmValtype]] = [(identToWasmId(id), "i64" if type(ty) == Int else "i32") for id,ty in ctx.freshVars.items()]
+    locals += freshLocals
+    locals += Locals.decls()
     
     return WasmModule(
         imports=wasmImports(cfg.maxMemSize),
         exports=[WasmExport("main", WasmExportFunc(idMain))],
         globals=Globals.decls(),
-        data=[],
+        data=Errors.data(),
         funcTable=WasmFuncTable([]),
         funcs=[WasmFunc(idMain, [], None, locals,instrs)])
     
@@ -83,7 +85,7 @@ def compileExp(exp: exp,cfg: CompilerConfig) -> list[WasmInstr]:
         case BinOp(left, op, right):
             return compileBinOp(left, op, right, cfg)
         case ArrayInitDyn(len, elemInit):
-            compileArrayInitDyn(len, elemInit, cfg)
+            return compileArrayInitDyn(len, elemInit, cfg)
         case ArrayInitStatic(elemInit):
             return compileArrayInitStatic(elemInit, cfg)
         case Subscript(array, index):
@@ -108,10 +110,11 @@ def compileArrayInitDyn(len: atomExp, elemInit: atomExp, cfg: CompilerConfig) ->
         WasmInstrVarLocal("get",Locals.tmp_i32),
         WasmInstrConst("i32", elementSize),
         WasmInstrNumBinOp("i32", "add"),
-        WasmInstrVarLocal("set",Locals.tmp_i32)
+        WasmInstrVarLocal("set",Locals.tmp_i32),
+        WasmInstrBranch(identToWasmId(Ident("loop_start")), False)
     ]
 
-    res += compileInitArray(len, elementSize, cfg)
+    res += compileInitArray(len, asTy(elemInit.ty), cfg)
     res += [
         WasmInstrVarLocal("tee", Locals.tmp_i32),
         WasmInstrVarLocal("get", Locals.tmp_i32),
@@ -129,7 +132,7 @@ def compileArrayInitStatic(elemInit: list[atomExp], cfg: CompilerConfig) -> list
     res: list[WasmInstr] = []
     elementSize = 8 if asTy(elemInit[0].ty) == Int() else 4
     
-    res += compileInitArray(IntConst(len(elemInit)), elementSize, cfg)
+    res += compileInitArray(IntConst(len(elemInit)), asTy(elemInit[0].ty), cfg)
     for index, elem in enumerate(elemInit):
         offset = 4 + elementSize * index
         res += [
@@ -144,8 +147,11 @@ def compileArrayInitStatic(elemInit: list[atomExp], cfg: CompilerConfig) -> list
 def compileSubscript(array: atomExp, index: atomExp, cfg: CompilerConfig) -> list[WasmInstr]:
     return []
 
-def compileInitArray(len: atomExp, elementSize: int, cfg: CompilerConfig) -> list[WasmInstr]:
+def compileInitArray(len: atomExp, elemInitType: ty, cfg: CompilerConfig) -> list[WasmInstr]:
     res: list[WasmInstr] = []
+    
+    elementSize = 8 if elemInitType == Int() else 4
+    headerVal = 1 if elemInitType == Int() or elemInitType == Bool() else 3
     
     #check length < 0
     res += compileLength(len, cfg)
@@ -160,22 +166,24 @@ def compileInitArray(len: atomExp, elementSize: int, cfg: CompilerConfig) -> lis
     res += [
         WasmInstrConst("i32", elementSize),
         WasmInstrNumBinOp("i32","mul"),
+        WasmInstrConst("i32", cfg.maxArraySize),
         WasmInstrIntRelOp("i32","gt_s"),
         WasmInstrIf(None, Errors.outputError(Errors.arraySize) + [WasmInstrTrap()],[])
     ]
+    
+    res += [WasmInstrVarGlobal("get", Globals.freePtr)]
             
     #compute header value
     res += compileLength(len, cfg)
     res += [
         WasmInstrConst("i32", 4),
         WasmInstrNumBinOp("i32","shl"),
-        WasmInstrConst("i32",3),
+        WasmInstrConst("i32",headerVal),
         WasmInstrNumBinOp("i32","xor")
     ]
     
     #store header
     res += [
-        WasmInstrVarGlobal("get", Globals.freePtr),
         WasmInstrMem("i32", "store")
     ]
     
@@ -222,10 +230,25 @@ def compileCall(name: ident, args: list[exp], cfg: CompilerConfig) -> list[WasmI
                 i = Ident("print_bool")
         case "input_int":
             i = Ident("input_i64")
+        case "len":
+            return compileLenCall(args, cfg)
         case _:
             raise Exception(f"CALL {name.name}")
     
     return compileExps(args, cfg) + [WasmInstrCall(identToWasmId(i))]
+    
+def compileLenCall(args: list[exp], cfg: CompilerConfig) -> list[WasmInstr]:
+    res: list[WasmInstr] = []
+    res += compileExps(args, cfg)
+    res += [
+        WasmInstrMem("i32", "load"),
+        WasmInstrConst("i32", 4),
+        WasmInstrNumBinOp("i32","shr_u"),
+        WasmInstrConvOp("i64.extend_i32_u")
+    ]
+    
+    return res
+    
 
 def compileUnOp(op: unaryop, arg: exp, cfg: CompilerConfig) -> list[WasmInstr]:
     match op:
@@ -264,8 +287,7 @@ def compileBinOp(left: exp, op: binaryop, right: exp, cfg: CompilerConfig) -> li
             else:
                 instr = [WasmInstrIntRelOp("i32","ne")]
         case Is():
-            #TODO Richtiger Datentyp?
-            instr = [WasmInstrIntRelOp("i64","eq")]
+            instr = [WasmInstrIntRelOp("i32","eq")]
         case And():
             return compileExp(left, cfg) + [WasmInstrIf("i32",compileExp(right, cfg), [WasmInstrConst("i32",0)])]
         case Or():

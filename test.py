@@ -1,1 +1,2 @@
-print(3)
+a = [1]
+print(len(a))
