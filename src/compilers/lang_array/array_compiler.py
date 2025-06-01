@@ -5,14 +5,16 @@ import lang_array.array_tychecker as array_tychecker
 import lang_array.array_transform as array_transform
 from lang_array.array_compilerSupport import *
 from common.compilerSupport import *
-import common.utils as utils
 
+config: CompilerConfig
 
 def compileModule(m: plainAst.mod, cfg: CompilerConfig) -> WasmModule:
+    global config
+    config = cfg
     vars = array_tychecker.tycheckModule(m)
     ctx = array_transform.Ctx()
     stmts = array_transform.transStmts(m.stmts, ctx)
-    instrs = compileStmts(stmts, cfg)
+    instrs = compileStmts(stmts)
     idMain = WasmId("$main")
     
     locals: list[tuple[WasmId, WasmValtype]] = [(identToWasmId(id), "i64" if type(ty) == Int else "i32") for id,ty in vars.types()]
@@ -28,72 +30,71 @@ def compileModule(m: plainAst.mod, cfg: CompilerConfig) -> WasmModule:
         funcTable=WasmFuncTable([]),
         funcs=[WasmFunc(idMain, [], None, locals,instrs)])
     
-def compileStmts(stmts: list[stmt], cfg: CompilerConfig) -> list[WasmInstr]:
+def compileStmts(stmts: list[stmt]) -> list[WasmInstr]:
     res: list[WasmInstr] = []
     
     for stmt in stmts:
-        res += compileStmt(stmt, cfg)
+        res += compileStmt(stmt)
     
     return res
 
-def compileStmt(stmt: stmt, cfg: CompilerConfig) -> list[WasmInstr]:
+def compileStmt(stmt: stmt) -> list[WasmInstr]:
     match stmt:
         case StmtExp(exp):
-            return compileExp(exp, cfg)
+            return compileExp(exp)
         case Assign(ident, exp):
-            return compileAssign(ident, exp, cfg)
+            return compileAssign(ident, exp)
         case IfStmt(cond, thenBody, elseBody):
-            return compileIf(cond, thenBody, elseBody, cfg)
+            return compileIf(cond, thenBody, elseBody)
         case WhileStmt(cond, body):
-            return compileWhile(cond, body, cfg)
+            return compileWhile(cond, body)
         case SubscriptAssign(left,index,right):
-            return compileSubscriptAssign(left,index,right, cfg)
+            return compileSubscriptAssign(left,index,right)
         
-def compileSubscriptAssign(left: atomExp, index: atomExp, right: exp, cfg: CompilerConfig) -> list[WasmInstr]:
-    return []
- 
-def compileWhile(cond: exp, body: list[stmt], cfg: CompilerConfig) -> list[WasmInstr]:
+
+def compileWhile(cond: exp, body: list[stmt]) -> list[WasmInstr]:
     return [WasmInstrBlock(WasmId("$loop_0_exit"), None,
-                           [WasmInstrLoop(WasmId("$loop_0_start"), compileWhileBody(cond, body, cfg))]
+                           [WasmInstrLoop(WasmId("$loop_0_start"), compileWhileBody(cond, body))]
                            )]
 
-def compileWhileBody(cond: exp, body: list[stmt], cfg: CompilerConfig) -> list[WasmInstr]:
+def compileWhileBody(cond: exp, body: list[stmt]) -> list[WasmInstr]:
     res : list[WasmInstr] = []
-    res += compileExp(cond, cfg)
+    res += compileExp(cond)
     res += [WasmInstrIf(None,[], [WasmInstrBranch(WasmId("$loop_0_exit"), False)])]
-    res += compileStmts(body, cfg)
+    res += compileStmts(body)
     res += [WasmInstrBranch(WasmId("$loop_0_start"),False)]
     return res
 
-def compileIf(cond: exp, thenBody: list[stmt], elseBody: list[stmt], cfg: CompilerConfig) -> list[WasmInstr]:
-    return compileExp(cond, cfg) + [WasmInstrIf(None,compileStmts(thenBody, cfg),compileStmts(elseBody, cfg))]
+def compileIf(cond: exp, thenBody: list[stmt], elseBody: list[stmt]) -> list[WasmInstr]:
+    return compileExp(cond) + [WasmInstrIf(None,compileStmts(thenBody),compileStmts(elseBody))]
 
-def compileExps(exps: list[exp], cfg: CompilerConfig) -> list[WasmInstr]:
+def compileExps(exps: list[exp]) -> list[WasmInstr]:
     res : list[WasmInstr] = []
     for e in exps:
-        res += compileExp(e, cfg)
+        res += compileExp(e)
     return res
  
-def compileExp(exp: exp,cfg: CompilerConfig) -> list[WasmInstr]:
+def compileExp(exp: exp) -> list[WasmInstr]:
     match exp:
         case AtomExp(atomExp):
-            return compileAtomicExp(atomExp, cfg)
+            return compileAtomicExp(atomExp)
         case Call(name, args):
-            return compileCall(name,args, cfg)
+            return compileCall(name,args)
         case UnOp(op, arg):
-            return compileUnOp(op,arg, cfg)
+            return compileUnOp(op,arg)
         case BinOp(left, op, right):
-            return compileBinOp(left, op, right, cfg)
+            return compileBinOp(left, op, right)
         case ArrayInitDyn(len, elemInit):
-            return compileArrayInitDyn(len, elemInit, cfg)
+            return compileArrayInitDyn(len, elemInit)
         case ArrayInitStatic(elemInit):
-            return compileArrayInitStatic(elemInit, cfg)
+            return compileArrayInitStatic(elemInit)
         case Subscript(array, index):
-            return compileSubscript(array, index, cfg)
+            return compileSubscript(array, index)
         
-def compileArrayInitDyn(len: atomExp, elemInit: atomExp, cfg: CompilerConfig) -> list[WasmInstr]:
+def compileArrayInitDyn(len: atomExp, elemInit: atomExp) -> list[WasmInstr]:
     res: list[WasmInstr] = []
     elementSize = 8 if asTy(elemInit.ty) == Int() else 4
+    dtype: WasmValtype = "i64" if asTy(elemInit.ty) == Int() else "i32"
 
     whileBody: list[WasmInstr] = [
         WasmInstrVarLocal("get",Locals.tmp_i32),
@@ -104,9 +105,9 @@ def compileArrayInitDyn(len: atomExp, elemInit: atomExp, cfg: CompilerConfig) ->
             ]),
         WasmInstrVarLocal("get",Locals.tmp_i32)
     ]
-    whileBody += compileAtomicExp(elemInit, cfg)
+    whileBody += compileAtomicExp(elemInit)
     whileBody += [
-        WasmInstrMem("i64","store"),
+        WasmInstrMem(dtype,"store"),
         WasmInstrVarLocal("get",Locals.tmp_i32),
         WasmInstrConst("i32", elementSize),
         WasmInstrNumBinOp("i32", "add"),
@@ -114,7 +115,7 @@ def compileArrayInitDyn(len: atomExp, elemInit: atomExp, cfg: CompilerConfig) ->
         WasmInstrBranch(identToWasmId(Ident("loop_start")), False)
     ]
 
-    res += compileInitArray(len, asTy(elemInit.ty), cfg)
+    res += compileInitArray(len, asTy(elemInit.ty))
     res += [
         WasmInstrVarLocal("tee", Locals.tmp_i32),
         WasmInstrVarLocal("get", Locals.tmp_i32),
@@ -128,11 +129,12 @@ def compileArrayInitDyn(len: atomExp, elemInit: atomExp, cfg: CompilerConfig) ->
     
     return res
 
-def compileArrayInitStatic(elemInit: list[atomExp], cfg: CompilerConfig) -> list[WasmInstr]:
+def compileArrayInitStatic(elemInit: list[atomExp]) -> list[WasmInstr]:
     res: list[WasmInstr] = []
     elementSize = 8 if asTy(elemInit[0].ty) == Int() else 4
+    dtype = "i64" if asTy(elemInit[0].ty) == Int() else "i32"
     
-    res += compileInitArray(IntConst(len(elemInit)), asTy(elemInit[0].ty), cfg)
+    res += compileInitArray(IntConst(len(elemInit)), asTy(elemInit[0].ty))
     for index, elem in enumerate(elemInit):
         offset = 4 + elementSize * index
         res += [
@@ -141,32 +143,90 @@ def compileArrayInitStatic(elemInit: list[atomExp], cfg: CompilerConfig) -> list
             WasmInstrConst("i32", offset),
             WasmInstrNumBinOp("i32","add"),
         ]
-        res += compileAtomicExp(elem, cfg) + [WasmInstrMem("i64","store")]
+        res += compileAtomicExp(elem) + [WasmInstrMem(dtype,"store")]
     return res
         
-def compileSubscript(array: atomExp, index: atomExp, cfg: CompilerConfig) -> list[WasmInstr]:
-    return []
+def compileSubscript(array: atomExp, index: atomExp) -> list[WasmInstr]:
+    res: List[WasmInstr] = []
+    res += arrayOffsetInstrs(array, index)
+    if asTy(array.ty) == Int():
+        res += [WasmInstrMem("i64","load")]
+    else:
+        res += [WasmInstrMem("i32","load")]
+    
+    return res
 
-def compileInitArray(len: atomExp, elemInitType: ty, cfg: CompilerConfig) -> list[WasmInstr]:
+def compileSubscriptAssign(left: atomExp, index: atomExp, right: exp) -> list[WasmInstr]:
+    res: List[WasmInstr] = []
+    res += arrayOffsetInstrs(left, index)
+    
+    res += compileExp(right)
+    
+    match right.ty:
+        case NotVoid(ty):
+            match ty:
+                case Int():
+                    res += [WasmInstrMem("i64","store")]
+                case _:
+                    res += [WasmInstrMem("i32","store")]
+        case _:
+            pass
+    
+    return res
+ 
+def arrayOffsetInstrs(array: atomExp, index: atomExp) -> list[WasmInstr]:
+    res: List[WasmInstr] = []
+    
+    #check index < 0
+    res += compileAtomicExp(index)
+    res += [
+        WasmInstrConvOp("i32.wrap_i64"),
+        WasmInstrConst("i32",0),
+        WasmInstrIntRelOp("i32","lt_s"),
+        WasmInstrIf(None,Errors.outputError(Errors.arraySize) + [WasmInstrTrap()],[])
+    ]
+    
+    res += compileAtomicExp(array)
+    res += arrayLenInstrs()
+    #check length < max
+    res += compileAtomicExp(index)
+    res += [
+        WasmInstrConvOp("i32.wrap_i64"),
+        WasmInstrIntRelOp("i32","lt_s"),
+        WasmInstrIf(None, Errors.outputError(Errors.arraySize) + [WasmInstrTrap()],[])
+    ]
+    
+    res += compileAtomicExp(array)
+    res += compileAtomicExp(index)
+    
+    res += [
+        WasmInstrConvOp("i32.wrap_i64"),
+    ]
+    
+    return res
+    
+    
+
+def compileInitArray(len: atomExp, elemInitType: ty) -> list[WasmInstr]:
     res: list[WasmInstr] = []
     
     elementSize = 8 if elemInitType == Int() else 4
     headerVal = 1 if elemInitType == Int() or elemInitType == Bool() else 3
     
-    #check length < 0
-    res += compileLength(len, cfg)
+    #check length > 0
+    res += compileLength(len)
     res += [
         WasmInstrConst("i32",0),
         WasmInstrIntRelOp("i32","lt_s"),
         WasmInstrIf(None,Errors.outputError(Errors.arraySize) + [WasmInstrTrap()],[])
     ]
     
-    #check length > max
-    res += compileLength(len, cfg)
+    #check length < max
+    res += compileLength(len)
     res += [
         WasmInstrConst("i32", elementSize),
         WasmInstrNumBinOp("i32","mul"),
-        WasmInstrConst("i32", cfg.maxArraySize),
+        WasmInstrConst("i32", config.maxArraySize),
         WasmInstrIntRelOp("i32","gt_s"),
         WasmInstrIf(None, Errors.outputError(Errors.arraySize) + [WasmInstrTrap()],[])
     ]
@@ -174,7 +234,7 @@ def compileInitArray(len: atomExp, elemInitType: ty, cfg: CompilerConfig) -> lis
     res += [WasmInstrVarGlobal("get", Globals.freePtr)]
             
     #compute header value
-    res += compileLength(len, cfg)
+    res += compileLength(len)
     res += [
         WasmInstrConst("i32", 4),
         WasmInstrNumBinOp("i32","shl"),
@@ -189,7 +249,7 @@ def compileInitArray(len: atomExp, elemInitType: ty, cfg: CompilerConfig) -> lis
     
     #move free pointer and return array address
     res += [WasmInstrVarGlobal("get", Globals.freePtr)]
-    res += compileLength(len, cfg)
+    res += compileLength(len)
     res += [
         WasmInstrConst("i32", elementSize),
         WasmInstrNumBinOp("i32","mul"),
@@ -203,10 +263,10 @@ def compileInitArray(len: atomExp, elemInitType: ty, cfg: CompilerConfig) -> lis
     return res
 
 #compile length expression and wrap in i32
-def compileLength(len: atomExp, cfg: CompilerConfig) -> list[WasmInstr]:
-    return compileAtomicExp(len, cfg) + [WasmInstrConvOp("i32.wrap_i64")]
+def compileLength(len: atomExp) -> list[WasmInstr]:
+    return compileAtomicExp(len) + [WasmInstrConvOp("i32.wrap_i64")]
         
-def compileAtomicExp(atomExp: atomExp, cfg: CompilerConfig) -> list[WasmInstr]:
+def compileAtomicExp(atomExp: atomExp) -> list[WasmInstr]:
     match atomExp:
         case IntConst(value):
             return [WasmInstrConst("i64",value)]
@@ -219,9 +279,8 @@ def compileAtomicExp(atomExp: atomExp, cfg: CompilerConfig) -> list[WasmInstr]:
         case Name(name):
             return [WasmInstrVarLocal("get", identToWasmId(name))]
     
-def compileCall(name: ident, args: list[exp], cfg: CompilerConfig) -> list[WasmInstr]:
+def compileCall(name: ident, args: list[exp]) -> list[WasmInstr]:
     i = Ident("")
-    #TODO len call
     match name.name:
         case "print":
             if (tyOfExp(args[0]) == Int()):
@@ -231,35 +290,37 @@ def compileCall(name: ident, args: list[exp], cfg: CompilerConfig) -> list[WasmI
         case "input_int":
             i = Ident("input_i64")
         case "len":
-            return compileLenCall(args, cfg)
+            return compileLenCall(args)
         case _:
             raise Exception(f"CALL {name.name}")
     
-    return compileExps(args, cfg) + [WasmInstrCall(identToWasmId(i))]
+    return compileExps(args) + [WasmInstrCall(identToWasmId(i))]
     
-def compileLenCall(args: list[exp], cfg: CompilerConfig) -> list[WasmInstr]:
+def compileLenCall(args: list[exp]) -> list[WasmInstr]:
     res: list[WasmInstr] = []
-    res += compileExps(args, cfg)
-    res += [
+    res += compileExps(args)
+    res += arrayLenInstrs()
+    
+    return res
+    
+def arrayLenInstrs() -> list[WasmInstr]:
+    return [
         WasmInstrMem("i32", "load"),
         WasmInstrConst("i32", 4),
         WasmInstrNumBinOp("i32","shr_u"),
         WasmInstrConvOp("i64.extend_i32_u")
     ]
-    
-    return res
-    
 
-def compileUnOp(op: unaryop, arg: exp, cfg: CompilerConfig) -> list[WasmInstr]:
+def compileUnOp(op: unaryop, arg: exp) -> list[WasmInstr]:
     match op:
         case USub():
-            return [WasmInstrConst("i64", 0)] + compileExp(arg, cfg) + [WasmInstrNumBinOp("i64","sub")]
+            return [WasmInstrConst("i64", 0)] + compileExp(arg) + [WasmInstrNumBinOp("i64","sub")]
         case Not():
-            return [WasmInstrConst("i32",1)] + compileExp(arg, cfg) + [WasmInstrNumBinOp("i32","sub")]
+            return [WasmInstrConst("i32",1)] + compileExp(arg) + [WasmInstrNumBinOp("i32","sub")]
             
 
-def compileBinOp(left: exp, op: binaryop, right: exp, cfg: CompilerConfig) -> list[WasmInstr]:
-    expressions : list[WasmInstr] = compileExp(left, cfg) + compileExp(right, cfg)
+def compileBinOp(left: exp, op: binaryop, right: exp) -> list[WasmInstr]:
+    expressions : list[WasmInstr] = compileExp(left) + compileExp(right)
     instr: list[WasmInstr]
     match op:
         case Add():
@@ -289,15 +350,15 @@ def compileBinOp(left: exp, op: binaryop, right: exp, cfg: CompilerConfig) -> li
         case Is():
             instr = [WasmInstrIntRelOp("i32","eq")]
         case And():
-            return compileExp(left, cfg) + [WasmInstrIf("i32",compileExp(right, cfg), [WasmInstrConst("i32",0)])]
+            return compileExp(left) + [WasmInstrIf("i32",compileExp(right), [WasmInstrConst("i32",0)])]
         case Or():
-            return compileExp(left, cfg) + [WasmInstrIf("i32",[WasmInstrConst("i32",1)], compileExp(right, cfg))]
+            return compileExp(left) + [WasmInstrIf("i32",[WasmInstrConst("i32",1)], compileExp(right))]
         
     return expressions + instr
     
 
-def compileAssign(var: ident, right: exp, cfg: CompilerConfig) -> list[WasmInstr]:
-    return compileExp(right, cfg) + [WasmInstrVarLocal("set", identToWasmId(var))]
+def compileAssign(var: ident, right: exp) -> list[WasmInstr]:
+    return compileExp(right) + [WasmInstrVarLocal("set", identToWasmId(var))]
 
 
 def tyOfExp(e : exp) -> ty:
@@ -316,3 +377,4 @@ def identToWasmId(ident: ident) -> WasmId:
 def asTy(ty: Optional[ty]) -> ty:
     assert ty is not None
     return ty
+    
