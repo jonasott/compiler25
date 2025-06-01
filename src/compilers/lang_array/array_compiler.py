@@ -149,11 +149,16 @@ def compileArrayInitStatic(elemInit: list[atomExp]) -> list[WasmInstr]:
 def compileSubscript(array: atomExp, index: atomExp) -> list[WasmInstr]:
     res: List[WasmInstr] = []
     res += arrayOffsetInstrs(array, index)
-    if asTy(array.ty) == Int():
-        res += [WasmInstrMem("i64","load")]
-    else:
-        res += [WasmInstrMem("i32","load")]
     
+    match array.ty:
+        case Array(elemTy): 
+            if asTy(elemTy) == Int():
+                res += [WasmInstrMem("i64","load")]
+            else:
+                res += [WasmInstrMem("i32","load")]
+        case _:
+            raise ValueError()
+        
     return res
 
 def compileSubscriptAssign(left: atomExp, index: atomExp, right: exp) -> list[WasmInstr]:
@@ -170,19 +175,24 @@ def compileSubscriptAssign(left: atomExp, index: atomExp, right: exp) -> list[Wa
                 case _:
                     res += [WasmInstrMem("i32","store")]
         case _:
-            pass
+            raise ValueError()
     
     return res
  
 def arrayOffsetInstrs(array: atomExp, index: atomExp) -> list[WasmInstr]:
     res: List[WasmInstr] = []
+    elementSize = 8
+    match array.ty:
+        case Array(elemTy):
+            elementSize = 8 if asTy(elemTy) == Int() else 4
+        case _:
+            raise ValueError
     
     #check index < 0
     res += compileAtomicExp(index)
     res += [
-        WasmInstrConvOp("i32.wrap_i64"),
-        WasmInstrConst("i32",0),
-        WasmInstrIntRelOp("i32","lt_s"),
+        WasmInstrConst("i64",0),
+        WasmInstrIntRelOp("i64","lt_s"),
         WasmInstrIf(None,Errors.outputError(Errors.arraySize) + [WasmInstrTrap()],[])
     ]
     
@@ -191,8 +201,7 @@ def arrayOffsetInstrs(array: atomExp, index: atomExp) -> list[WasmInstr]:
     #check length < max
     res += compileAtomicExp(index)
     res += [
-        WasmInstrConvOp("i32.wrap_i64"),
-        WasmInstrIntRelOp("i32","lt_s"),
+        WasmInstrIntRelOp("i64","lt_s"),
         WasmInstrIf(None, Errors.outputError(Errors.arraySize) + [WasmInstrTrap()],[])
     ]
     
@@ -201,6 +210,11 @@ def arrayOffsetInstrs(array: atomExp, index: atomExp) -> list[WasmInstr]:
     
     res += [
         WasmInstrConvOp("i32.wrap_i64"),
+        WasmInstrConst("i32", elementSize),
+        WasmInstrNumBinOp("i32","mul"),
+        WasmInstrConst("i32", 4),
+        WasmInstrNumBinOp("i32","add"),
+        WasmInstrNumBinOp("i32","add")
     ]
     
     return res
