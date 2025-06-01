@@ -193,7 +193,7 @@ def arrayOffsetInstrs(array: atomExp, index: atomExp) -> list[WasmInstr]:
     res += [
         WasmInstrConst("i64",0),
         WasmInstrIntRelOp("i64","lt_s"),
-        WasmInstrIf(None,Errors.outputError(Errors.arraySize) + [WasmInstrTrap()],[])
+        WasmInstrIf(None,Errors.outputError(Errors.arrayIndexOutOfBounds) + [WasmInstrTrap()],[])
     ]
     
     res += compileAtomicExp(array)
@@ -202,7 +202,7 @@ def arrayOffsetInstrs(array: atomExp, index: atomExp) -> list[WasmInstr]:
     res += compileAtomicExp(index)
     res += [
         WasmInstrIntRelOp("i64","lt_s"),
-        WasmInstrIf(None, Errors.outputError(Errors.arraySize) + [WasmInstrTrap()],[])
+        WasmInstrIf(None, Errors.outputError(Errors.arrayIndexOutOfBounds) + [WasmInstrTrap()],[])
     ]
     
     res += compileAtomicExp(array)
