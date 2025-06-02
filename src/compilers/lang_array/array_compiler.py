@@ -198,10 +198,10 @@ def arrayOffsetInstrs(array: atomExp, index: atomExp) -> list[WasmInstr]:
     
     res += compileAtomicExp(array)
     res += arrayLenInstrs()
-    #check length < max
+    #error if length <= index
     res += compileAtomicExp(index)
     res += [
-        WasmInstrIntRelOp("i64","lt_s"),
+        WasmInstrIntRelOp("i64","le_s"),
         WasmInstrIf(None, Errors.outputError(Errors.arrayIndexOutOfBounds) + [WasmInstrTrap()],[])
     ]
     
